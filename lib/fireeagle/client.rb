@@ -3,6 +3,7 @@ module FireEagle
     # TODO add access_token=() and request_token=() methods that check whether the tokens are usable
     
     attr_reader :access_token, :request_token, :consumer, :format
+    attr_accessor :oauth_callback
 
     # Initialize a FireEagle Client. Takes an options Hash.
     #
@@ -15,6 +16,7 @@ module FireEagle
     #
     # [<tt>:request_token</tt>]           OAuth Request Token, for use with convert_to_access_token
     # [<tt>:request_token_secret</tt>]    OAuth Request Token Secret, for use with convert_to_access_token
+    # [<tt>:oauth_callback</tt>]          OAuth Callback URL, where Fireeagle will redircet you after the user confirming your acces to fireeagle, required if :request_token and :request_token_secret are given
     # [<tt>:access_token</tt>]           OAuth Token, either User-specific or General-purpose
     # [<tt>:access_token_secret</tt>]    OAuth Token, either User-specific or General-purpose
     # [<tt>:app_id</tt>]                 Your Mobile Application ID
@@ -88,22 +90,33 @@ module FireEagle
       @debug    = options[:debug]
       @format   = options[:format]
       @app_id   = options[:app_id]
+
+
+
       if options[:access_token] && options[:access_token_secret]
         @access_token = OAuth::AccessToken.new(@consumer, options[:access_token], options[:access_token_secret])
       else
         @access_token = nil
       end
+      
+      @oauth_callback = options[:oauth_callback]
+      
       if options[:request_token] && options[:request_token_secret]
+        raise FireEagle::ArgumentError, "OAuth 1.0a requires the Oauth Callback URL to retrieve a request token. Pre-registering an Callback URL is unsafe and not supported anymore" if @oauth_callback.nil?
         @request_token = OAuth::RequestToken.new(@consumer, options[:request_token], options[:request_token_secret])
+
+        @request_token.params[:oauth_callback] = @oauth_callback 
       else
         @request_token = nil
       end
     end
 
     # Obtain an <strong>new</strong> unauthorized OAuth Request token
-    def get_request_token(force_token_regeneration = false)
+    def get_request_token(force_token_regeneration = false, options = {})
       if force_token_regeneration || @request_token.nil?
-        @request_token = consumer.get_request_token
+        @oauth_callback = options[:oauth_callback] unless options[:oauth_callback].nil?
+        raise FireEagle::ArgumentError, "OAuth 1.0a requires the Oauth Callback URL to retrieve a request token. Pre-registering an Callback URL is unsafe and not supported anymore" if @oauth_callback.nil?        
+        @request_token = consumer.get_request_token(:oauth_callback => @oauth_callback)
       end
       @request_token
     end
@@ -121,9 +134,9 @@ module FireEagle
     end
 
     #Exchange an authorized OAuth Request token for an access token. For use by desktop-based and mobile applications.
-    def convert_to_access_token
+    def convert_to_access_token(oauth_verifier)
       raise FireEagle::ArgumentError, "call #get_request_token and have user authorize the token first" if @request_token.nil?
-      @access_token = request_token.get_access_token
+      @access_token = request_token.get_access_token(:oauth_verifier => oauth_verifier)
     end
 
     # Disambiguates potential values for update query. Results from lookup can be passed to
